@@ -45,6 +45,7 @@ export interface UserProfile {
   anniversary?: string;
   struggles?: string[];
   triageHistory?: TriageRecord[];
+  accessPin?: string;
 }
 
 export interface UserState {

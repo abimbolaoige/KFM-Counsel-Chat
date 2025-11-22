@@ -3,13 +3,14 @@ import React, { useState, useEffect } from 'react';
 import { Book, Plus, Trash2, ArrowLeft, Calendar, PenTool, CheckCircle2, Lock } from 'lucide-react';
 import { ViewProps, JournalEntry } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import SecurityLock from './SecurityLock';
 
 const JournalView: React.FC<ViewProps> = ({ setView }) => {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [newEntryText, setNewEntryText] = useState('');
   const [category, setCategory] = useState<'prayer' | 'progress' | 'gratitude'>('progress');
   const [isAdding, setIsAdding] = useState(false);
-  const { user } = useAuth();
+  const { user, isFeaturesUnlocked } = useAuth();
   
   const journalStorageKey = user ? `kfm_journal_${user.id}` : 'kfm_journal_guest';
 
@@ -100,6 +101,11 @@ const JournalView: React.FC<ViewProps> = ({ setView }) => {
              </button>
         </div>
       );
+  }
+
+  // --- FEATURE LOCK ---
+  if (!isFeaturesUnlocked) {
+      return <SecurityLock onUnlock={() => {}} onBack={() => setView('home')} />;
   }
 
   return (

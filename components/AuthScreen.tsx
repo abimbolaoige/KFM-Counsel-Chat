@@ -2,44 +2,160 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ViewProps } from '../types';
-import { Mail, Lock, User, ArrowRight, Loader2, Heart } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Loader2, Heart, KeyRound, CheckCircle2 } from 'lucide-react';
+
+type AuthMode = 'login' | 'signup' | 'forgot' | 'reset';
 
 const AuthScreen: React.FC<ViewProps> = ({ setView, showLegal }) => {
-  const { login, signup } = useAuth();
-  const [isLogin, setIsLogin] = useState(true);
+  const { login, signup, requestPasswordReset, confirmPasswordReset } = useAuth();
+  
+  const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [code, setCode] = useState(''); // For reset
+  const [newPassword, setNewPassword] = useState('');
+  
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
-
+    setLoading(true); setError('');
     try {
-        let result;
-        if (isLogin) {
-            result = await login(email, password);
-        } else {
-            if (!name.trim()) {
-                setError("Name is required");
-                setLoading(false);
-                return;
-            }
-            result = await signup(email, password, name);
-        }
-
+        const result = await login(email, password);
         if (result.success) {
             setView('home');
         } else {
             setError(result.message);
         }
-    } catch (e) {
-        setError("An unexpected error occurred");
-    }
+    } catch (e) { setError("Login failed."); }
     setLoading(false);
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true); setError('');
+    if (!name.trim()) { setError("Name is required"); setLoading(false); return; }
+    try {
+        const result = await signup(email, password, name);
+        if (result.success) {
+            // Auto-login handled in context, just switch view
+            setView('home');
+        } else {
+            setError(result.message);
+        }
+    } catch (e) { setError("Signup failed."); }
+    setLoading(false);
+  };
+
+  const handleForgot = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setLoading(true); setError('');
+      try {
+          const result = await requestPasswordReset(email);
+          if (result.success) {
+              setSuccessMsg(`Reset code sent to ${email}`);
+              setMode('reset');
+          } else {
+              setError(result.message);
+          }
+      } catch (e) { setError("Request failed."); }
+      setLoading(false);
+  };
+
+  const handleReset = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setLoading(true); setError('');
+      try {
+          const result = await confirmPasswordReset(email, code, newPassword);
+          if (result.success) {
+              setSuccessMsg("Password reset! Please login.");
+              setMode('login');
+              setPassword('');
+              setCode('');
+              setNewPassword('');
+          } else {
+              setError(result.message);
+          }
+      } catch (e) { setError("Reset failed."); }
+      setLoading(false);
+  };
+
+  const renderForm = () => {
+      switch (mode) {
+          case 'login':
+              return (
+                  <form onSubmit={handleLogin} className="space-y-4">
+                      <div className="relative">
+                          <Mail className="absolute left-4 top-4 text-slate-400" size={20} />
+                          <input type="email" required placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
+                      </div>
+                      <div className="relative">
+                          <Lock className="absolute left-4 top-4 text-slate-400" size={20} />
+                          <input type="password" required placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
+                      </div>
+                      <div className="flex justify-end">
+                          <button type="button" onClick={() => { setMode('forgot'); setError(''); setSuccessMsg(''); }} className="text-xs font-bold text-brand-600 dark:text-brand-400 hover:underline">Forgot Password?</button>
+                      </div>
+                      <button type="submit" disabled={loading} className="w-full bg-brand-600 text-white font-bold py-4 rounded-full shadow-md hover:bg-brand-700 transition-all mt-2 flex items-center justify-center gap-2">
+                          {loading ? <Loader2 className="animate-spin" size={20} /> : <>Sign In <ArrowRight size={18} /></>}
+                      </button>
+                  </form>
+              );
+          case 'signup':
+              return (
+                  <form onSubmit={handleSignup} className="space-y-4">
+                      <div className="relative">
+                          <User className="absolute left-4 top-4 text-slate-400" size={20} />
+                          <input type="text" required placeholder="Full Name" value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
+                      </div>
+                      <div className="relative">
+                          <Mail className="absolute left-4 top-4 text-slate-400" size={20} />
+                          <input type="email" required placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
+                      </div>
+                      <div className="relative">
+                          <Lock className="absolute left-4 top-4 text-slate-400" size={20} />
+                          <input type="password" required placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
+                      </div>
+                      <button type="submit" disabled={loading} className="w-full bg-brand-600 text-white font-bold py-4 rounded-full shadow-md hover:bg-brand-700 transition-all mt-2 flex items-center justify-center gap-2">
+                          {loading ? <Loader2 className="animate-spin" size={20} /> : <>Create Account <ArrowRight size={18} /></>}
+                      </button>
+                  </form>
+              );
+          case 'forgot':
+              return (
+                  <form onSubmit={handleForgot} className="space-y-4">
+                      <p className="text-center text-sm text-slate-600 dark:text-slate-300 mb-2">Enter your email to receive a password reset code.</p>
+                      <div className="relative">
+                          <Mail className="absolute left-4 top-4 text-slate-400" size={20} />
+                          <input type="email" required placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
+                      </div>
+                      <button type="submit" disabled={loading} className="w-full bg-brand-600 text-white font-bold py-4 rounded-full shadow-md hover:bg-brand-700 transition-all mt-2 flex items-center justify-center gap-2">
+                          {loading ? <Loader2 className="animate-spin" size={20} /> : <>Send Reset Code <ArrowRight size={18} /></>}
+                      </button>
+                      <button type="button" onClick={() => { setMode('login'); setError(''); setSuccessMsg(''); }} className="w-full text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-sm font-medium py-2">Back to Login</button>
+                  </form>
+              );
+          case 'reset':
+              return (
+                  <form onSubmit={handleReset} className="space-y-4">
+                       <p className="text-center text-sm text-slate-600 dark:text-slate-300 mb-2">Enter the code sent to <strong>{email}</strong> and your new password.</p>
+                      <div className="relative">
+                          <KeyRound className="absolute left-4 top-4 text-slate-400" size={20} />
+                          <input type="text" required placeholder="Reset Code" value={code} onChange={(e) => setCode(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
+                      </div>
+                      <div className="relative">
+                          <Lock className="absolute left-4 top-4 text-slate-400" size={20} />
+                          <input type="password" required placeholder="New Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
+                      </div>
+                      <button type="submit" disabled={loading} className="w-full bg-brand-600 text-white font-bold py-4 rounded-full shadow-md hover:bg-brand-700 transition-all mt-2 flex items-center justify-center gap-2">
+                          {loading ? <Loader2 className="animate-spin" size={20} /> : <>Reset Password <CheckCircle2 size={18} /></>}
+                      </button>
+                  </form>
+              );
+      }
   };
 
   return (
@@ -51,87 +167,56 @@ const AuthScreen: React.FC<ViewProps> = ({ setView, showLegal }) => {
                  </div>
             </div>
             
-            <h2 className="text-3xl font-serif font-bold text-center text-slate-900 dark:text-slate-100 mb-2">
-                {isLogin ? 'Welcome Back' : 'Join KFM Counsel'}
+            <h2 className="text-3xl font-serif font-bold text-center text-slate-900 dark:text-slate-100 mb-2 capitalize">
+                {mode === 'login' ? 'Welcome Back' : mode.replace('-', ' ')}
             </h2>
-            <p className="text-center text-slate-500 dark:text-slate-400 mb-8 text-sm">
-                {isLogin ? 'Sign in to access your personal journey.' : 'Create an account for continuity and support.'}
+            <p className="text-center text-slate-500 dark:text-slate-400 mb-6 text-sm">
+                {mode === 'login' && 'Sign in to access your personal journey.'}
+                {mode === 'signup' && 'Create an account for continuity and support.'}
+                {mode === 'forgot' && 'Recover access to your account.'}
+                {mode === 'reset' && 'Set a new secure password.'}
             </p>
 
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-xl text-sm text-center mb-6 font-medium">
+                <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-xl text-sm text-center mb-6 font-medium animate-pulse">
                     {error}
                 </div>
             )}
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-                {!isLogin && (
-                     <div className="relative">
-                        <User className="absolute left-4 top-4 text-slate-400" size={20} />
-                        <input 
-                            type="text"
-                            placeholder="Full Name"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors"
-                        />
-                    </div>
-                )}
-                
-                <div className="relative">
-                    <Mail className="absolute left-4 top-4 text-slate-400" size={20} />
-                    <input 
-                        type="email"
-                        required
-                        placeholder="Email Address"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors"
-                    />
+            {successMsg && (
+                <div className="bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 p-3 rounded-xl text-sm text-center mb-6 font-medium animate-in fade-in">
+                    {successMsg}
                 </div>
+            )}
 
-                <div className="relative">
-                    <Lock className="absolute left-4 top-4 text-slate-400" size={20} />
-                    <input 
-                        type="password"
-                        required
-                        placeholder="Password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors"
-                    />
-                </div>
+            {renderForm()}
 
-                <button 
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-brand-600 text-white font-bold py-4 rounded-full shadow-md hover:bg-brand-700 transition-all active:scale-[0.98] mt-4 flex items-center justify-center gap-2"
-                >
-                    {loading ? <Loader2 className="animate-spin" size={20} /> : <>{isLogin ? 'Sign In' : 'Create Account'} <ArrowRight size={18} /></>}
-                </button>
-            </form>
-
-             <div className="mt-4 text-center">
+             <div className="mt-6 text-center">
                 <p className="text-xs text-slate-400 dark:text-slate-500 max-w-xs mx-auto leading-relaxed">
-                    Before using this app, you can review our{' '}
+                    By continuing, you agree to our{' '}
                     <button onClick={() => showLegal('privacy')} className="text-brand-600 dark:text-brand-400 font-bold hover:underline">Privacy Policy</button>
                     {' '}and{' '}
                     <button onClick={() => showLegal('terms')} className="text-brand-600 dark:text-brand-400 font-bold hover:underline">Terms of Service</button>.
                 </p>
             </div>
 
-            <div className="mt-6 text-center pt-4 border-t border-slate-100 dark:border-slate-700">
-                <button 
-                    onClick={() => setIsLogin(!isLogin)}
-                    className="text-brand-600 dark:text-brand-400 font-semibold text-sm hover:underline block w-full mb-2"
-                >
-                    {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
-                </button>
-                
-                 <button onClick={() => setView('home')} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 text-xs">
-                    Continue as Guest (Progress will not be saved)
-                 </button>
-            </div>
+            {(mode === 'login' || mode === 'signup') && (
+                <div className="mt-4 text-center pt-4 border-t border-slate-100 dark:border-slate-700">
+                    <button 
+                        onClick={() => {
+                            setMode(mode === 'login' ? 'signup' : 'login');
+                            setError('');
+                            setSuccessMsg('');
+                        }}
+                        className="text-brand-600 dark:text-brand-400 font-semibold text-sm hover:underline block w-full mb-2"
+                    >
+                        {mode === 'login' ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
+                    </button>
+                    
+                     <button onClick={() => setView('home')} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 text-xs">
+                        Continue as Guest (Progress will not be saved)
+                     </button>
+                </div>
+            )}
         </div>
     </div>
   );

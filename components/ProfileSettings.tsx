@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, UserCircle, ArrowLeft, Heart, Activity } from 'lucide-react';
+import { Save, UserCircle, ArrowLeft, Heart, Activity, Lock, KeyRound } from 'lucide-react';
 import { ViewProps, UserProfile } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -9,9 +9,11 @@ const ProfileSettings: React.FC<ViewProps> = ({ setView }) => {
     name: '',
     spouseName: '',
     anniversary: '',
-    triageHistory: []
+    triageHistory: [],
+    accessPin: ''
   });
   const [saved, setSaved] = useState(false);
+  const [newPin, setNewPin] = useState('');
   const { user } = useAuth();
   
   const profileStorageKey = user ? `kfm_profile_${user.id}` : 'kfm_profile_guest';
@@ -29,7 +31,16 @@ const ProfileSettings: React.FC<ViewProps> = ({ setView }) => {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    localStorage.setItem(profileStorageKey, JSON.stringify(profile));
+    const updatedProfile = { ...profile };
+    
+    // Only update PIN if newPin is entered (simple update for MVP)
+    if (newPin.length === 4) {
+        updatedProfile.accessPin = newPin;
+    }
+
+    localStorage.setItem(profileStorageKey, JSON.stringify(updatedProfile));
+    setProfile(updatedProfile);
+    setNewPin('');
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -87,6 +98,28 @@ const ProfileSettings: React.FC<ViewProps> = ({ setView }) => {
                 value={profile.anniversary}
                 onChange={e => setProfile({...profile, anniversary: e.target.value})}
             />
+            </div>
+        </div>
+
+        {/* Security Section */}
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm mt-6">
+            <div className="flex items-center gap-2 mb-4 text-slate-800 dark:text-slate-100 font-bold">
+                <Lock size={20} className="text-slate-600 dark:text-slate-400" />
+                <h3>Security & Privacy</h3>
+            </div>
+            <p className="text-sm text-slate-500 mb-4">Set a 4-digit PIN to secure your Journal and Prayer Room.</p>
+            
+            <div className="relative">
+                <KeyRound className="absolute left-4 top-4 text-slate-400" size={20} />
+                <input 
+                    type="password" 
+                    maxLength={4}
+                    pattern="\d*"
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors tracking-widest"
+                    value={newPin}
+                    onChange={e => setNewPin(e.target.value.replace(/\D/g, ''))}
+                    placeholder={profile.accessPin ? "Change Existing PIN" : "Create New PIN"}
+                />
             </div>
         </div>
 

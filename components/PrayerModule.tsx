@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Loader2, Copy, ArrowLeft, PenTool, List, BookOpen, Users, Heart, MessageCircle, Plus, Send, ThumbsUp, Lock } from 'lucide-react';
+import { Sparkles, Loader2, Copy, ArrowLeft, PenTool, List, BookOpen, Users, Heart, MessageCircle, Plus, Send, ThumbsUp, Lock, CheckCircle2, X, Save } from 'lucide-react';
 import { ViewProps } from '../types';
 import { PRAYER_TOPICS } from '../constants';
 import { generatePrayer } from '../services/geminiService';
 import { useAuth } from '../contexts/AuthContext';
+import SecurityLock from './SecurityLock';
 
 interface PrayerResult {
   prayer: string;
@@ -13,6 +14,7 @@ interface PrayerResult {
 
 interface HubRequest {
   id: string;
+  userId?: string; // Added to track ownership
   text: string;
   prayedCount: number;
   timestamp: number;
@@ -22,6 +24,7 @@ interface HubRequest {
 
 interface Testimony {
   id: string;
+  userId?: string;
   text: string;
   timestamp: number;
   authorName: string;
@@ -32,7 +35,7 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
   const [customTopic, setCustomTopic] = useState('');
   const [generatedPrayer, setGeneratedPrayer] = useState<PrayerResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const { user } = useAuth();
+  const { user, isFeaturesUnlocked } = useAuth();
 
   // Hub State
   const [hubSection, setHubSection] = useState<'requests' | 'testimonies'>('requests');
@@ -41,6 +44,10 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
   const [newHubText, setNewHubText] = useState('');
   const [isSubmittingHub, setIsSubmittingHub] = useState(false);
   const [prayedIds, setPrayedIds] = useState<string[]>([]); // Track session prays
+
+  // Editing State
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
 
   // Load Hub Data
   useEffect(() => {
@@ -89,6 +96,7 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
       if (hubSection === 'requests') {
           const newItem: HubRequest = {
               id: Date.now().toString(),
+              userId: user?.id,
               text: newHubText.trim(),
               prayedCount: 0,
               timestamp: Date.now(),
@@ -101,6 +109,7 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
       } else {
           const newItem: Testimony = {
               id: Date.now().toString(),
+              userId: user?.id,
               text: newHubText.trim(),
               timestamp: Date.now(),
               authorName: user ? user.name.split(' ')[0] : 'Anonymous'
@@ -125,6 +134,58 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
       setRequests(updated);
       localStorage.setItem('kfm_hub_requests', JSON.stringify(updated));
       setPrayedIds([...prayedIds, id]);
+  };
+
+  // --- Edit Functionality ---
+  const startEditing = (req: HubRequest) => {
+    setEditingId(req.id);
+    setEditText(req.text);
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditText('');
+  };
+
+  const saveEdit = () => {
+    if (!editingId || !editText.trim()) return;
+
+    const updated = requests.map(req => {
+      if (req.id === editingId) {
+        return { ...req, text: editText.trim() };
+      }
+      return req;
+    });
+    setRequests(updated);
+    localStorage.setItem('kfm_hub_requests', JSON.stringify(updated));
+    setEditingId(null);
+    setEditText('');
+  };
+
+  // --- Answered Functionality ---
+  const markAsAnswered = (req: HubRequest) => {
+    if (window.confirm("Mark this prayer as answered? It will be moved to the Testimonies section.")) {
+      // 1. Remove from requests
+      const updatedRequests = requests.filter(r => r.id !== req.id);
+      setRequests(updatedRequests);
+      localStorage.setItem('kfm_hub_requests', JSON.stringify(updatedRequests));
+
+      // 2. Add to testimonies
+      const newTestimony: Testimony = {
+        id: req.id, // Keep same ID or new one, keeping same is fine for tracking
+        userId: req.userId,
+        text: `Answered Prayer: ${req.text}`,
+        timestamp: Date.now(),
+        authorName: req.authorName || (user ? user.name.split(' ')[0] : 'Anonymous')
+      };
+      
+      const updatedTestimonies = [newTestimony, ...testimonies];
+      setTestimonies(updatedTestimonies);
+      localStorage.setItem('kfm_hub_testimonies', JSON.stringify(updatedTestimonies));
+
+      // Optional: Switch view
+      setHubSection('testimonies');
+    }
   };
 
   const reset = () => {
@@ -164,6 +225,11 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
          </button>
       </div>
     );
+  }
+
+  // --- FEATURE LOCK ---
+  if (!isFeaturesUnlocked) {
+      return <SecurityLock onUnlock={() => {}} onBack={() => setView('home')} />;
   }
 
   return (
@@ -305,23 +371,64 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
 
                   {hubSection === 'requests' && requests.map((req) => (
                       <div key={req.id} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                          <p className="text-slate-700 dark:text-slate-300 font-serif mb-3 leading-relaxed">{req.text}</p>
-                          <div className="flex items-center justify-between">
+                          
+                          {/* Edit Mode */}
+                          {editingId === req.id ? (
+                            <div className="animate-in fade-in">
+                                <textarea 
+                                    value={editText}
+                                    onChange={e => setEditText(e.target.value)}
+                                    className="w-full h-24 bg-slate-50 dark:bg-slate-900 rounded-lg p-2 text-sm text-slate-800 dark:text-slate-200 border focus:ring-1 focus:ring-amber-500 mb-2"
+                                />
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={cancelEditing} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-full"><X size={16} /></button>
+                                    <button onClick={saveEdit} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded-full"><Save size={16} /></button>
+                                </div>
+                            </div>
+                          ) : (
+                              <p className="text-slate-700 dark:text-slate-300 font-serif mb-3 leading-relaxed">{req.text}</p>
+                          )}
+
+                          <div className="flex items-center justify-between mt-3">
                               <div className="flex items-center gap-2 text-xs text-slate-400">
                                   <span className="font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded text-slate-500 dark:text-slate-400">Anonymous</span>
                                   <span>• {formatDate(req.timestamp)}</span>
                               </div>
-                              <button 
-                                onClick={() => handlePrayClick(req.id)}
-                                disabled={prayedIds.includes(req.id)}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all active:scale-95
-                                ${prayedIds.includes(req.id) 
-                                    ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 cursor-default' 
-                                    : 'bg-slate-50 dark:bg-slate-900 text-slate-500 hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-700'}`}
-                              >
-                                  <Heart size={14} className={prayedIds.includes(req.id) ? 'fill-current' : ''} />
-                                  {req.prayedCount} Prayed
-                              </button>
+                              
+                              <div className="flex items-center gap-2">
+                                  {/* Owner Actions */}
+                                  {user && req.userId === user.id && editingId !== req.id && (
+                                      <>
+                                        <button 
+                                            onClick={() => startEditing(req)}
+                                            className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-slate-700 rounded-full transition-colors"
+                                            title="Edit"
+                                        >
+                                            <PenTool size={14} />
+                                        </button>
+                                        <button 
+                                            onClick={() => markAsAnswered(req)}
+                                            className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-slate-700 rounded-full transition-colors"
+                                            title="Mark as Answered"
+                                        >
+                                            <CheckCircle2 size={16} />
+                                        </button>
+                                        <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-1"></div>
+                                      </>
+                                  )}
+
+                                  <button 
+                                    onClick={() => handlePrayClick(req.id)}
+                                    disabled={prayedIds.includes(req.id)}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all active:scale-95
+                                    ${prayedIds.includes(req.id) 
+                                        ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 cursor-default' 
+                                        : 'bg-slate-50 dark:bg-slate-900 text-slate-500 hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-700'}`}
+                                  >
+                                      <Heart size={14} className={prayedIds.includes(req.id) ? 'fill-current' : ''} />
+                                      {req.prayedCount} Prayed
+                                  </button>
+                              </div>
                           </div>
                       </div>
                   ))}
@@ -390,10 +497,14 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
               New Prayer
             </button>
              <button 
-              onClick={() => navigator.clipboard.writeText(`${generatedPrayer.prayer}\n\n${generatedPrayer.scripture}`)}
+              onClick={() => {
+                navigator.clipboard.writeText(`${generatedPrayer.prayer}\n\n${generatedPrayer.scripture}`);
+                alert("Prayer copied to clipboard");
+              }}
               className="flex items-center justify-center gap-2 px-8 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 rounded-full font-bold hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors shadow-sm"
             >
               <Copy size={20} />
+              <span className="hidden sm:inline">Copy</span>
             </button>
           </div>
         </div>
