@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, ShieldAlert, User, Sparkles, Trash2, Mic, MicOff, Copy, Check, Volume2, VolumeX, Pencil, ExternalLink } from 'lucide-react';
 import { Message, UserProfile } from '../types';
 import { sendMessageToGemini } from '../services/geminiService';
+import { subscribeToChatHistory, saveChatMessage } from '../services/dataService';
 import { SAFETY_REGEX } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -116,46 +117,55 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
       inputRef.current?.focus();
   };
 
-  // Load history and profile
+  // Load history logic (Cloud vs Local)
   useEffect(() => {
-    const saved = localStorage.getItem(chatStorageKey);
-    if (saved) {
-      try {
-        setMessages(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to load chat history", e);
-      }
+    if (user) {
+        // CLOUD MODE: Subscribe to Firestore
+        const unsubscribe = subscribeToChatHistory(user.id, (fetchedMessages) => {
+            if (fetchedMessages && fetchedMessages.length > 0) {
+                setMessages(fetchedMessages);
+            } else {
+                // If no cloud messages, maybe show welcome
+                setMessages([{
+                    id: 'welcome',
+                    role: 'model',
+                    text: `Hello ${user.name}. I am KFM Counsel. How can I be a support to you today?`,
+                    timestamp: Date.now(),
+                }]);
+            }
+        });
+        return () => unsubscribe();
     } else {
-      // Default welcome message logic
-      const savedProfile = localStorage.getItem(profileStorageKey);
-      let welcome = "Hello. I am KFM Counsel, your Christian marriage relationship companion. How can I be a support to you today?";
-      
-      if (savedProfile) {
-        try {
-          const profile: UserProfile = JSON.parse(savedProfile);
-          if (profile.name) {
-            welcome = `Hello ${profile.name}. I am KFM Counsel. How can I be a support to you and ${profile.spouseName || 'your spouse'} today?`;
-          }
-        } catch (e) {}
-      } else if (user) {
-          welcome = `Hello ${user.name}. I am KFM Counsel. How can I be a support to you today?`;
-      }
-
-      setMessages([{
-        id: 'welcome',
-        role: 'model',
-        text: welcome,
-        timestamp: Date.now(),
-      }]);
+        // GUEST MODE: Local Storage
+        const saved = localStorage.getItem(chatStorageKey);
+        if (saved) {
+            try {
+                setMessages(JSON.parse(saved));
+            } catch (e) {
+                console.error("Failed to load chat history", e);
+            }
+        } else {
+            setMessages([{
+                id: 'welcome',
+                role: 'model',
+                text: "Hello. I am KFM Counsel, your Christian marriage relationship companion. How can I be a support to you today?",
+                timestamp: Date.now(),
+            }]);
+        }
     }
-  }, [chatStorageKey, profileStorageKey, user]);
+  }, [user, chatStorageKey]);
 
+  // Scroll on update
   useEffect(() => {
-    if (messages.length > 0) {
+    scrollToBottom();
+  }, [messages]);
+
+  // Save to LocalStorage (Backup/Guest)
+  useEffect(() => {
+    if (!user && messages.length > 0) {
       localStorage.setItem(chatStorageKey, JSON.stringify(messages));
     }
-    scrollToBottom();
-  }, [messages, chatStorageKey]);
+  }, [messages, chatStorageKey, user]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -163,15 +173,19 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
 
   const clearHistory = () => {
     if (window.confirm("Are you sure you want to clear your chat history?")) {
-      localStorage.removeItem(chatStorageKey);
-      window.speechSynthesis.cancel();
-      setSpeakingId(null);
-      setMessages([{
-        id: Date.now().toString(),
-        role: 'model',
-        text: "Chat history cleared. How can I be a support to you today?",
-        timestamp: Date.now(),
-      }]);
+      if (user) {
+          alert("To clear cloud history, please use your Profile Settings (Full delete not implemented in this MVP).");
+      } else {
+        localStorage.removeItem(chatStorageKey);
+        window.speechSynthesis.cancel();
+        setSpeakingId(null);
+        setMessages([{
+            id: Date.now().toString(),
+            role: 'model',
+            text: "Chat history cleared. How can I be a support to you today?",
+            timestamp: Date.now(),
+        }]);
+      }
     }
   };
 
@@ -197,7 +211,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
       text: userText,
       timestamp: Date.now()
     };
+
+    // Optimistic update
     setMessages(prev => [...prev, newUserMsg]);
+    
+    // Save to cloud if logged in
+    if (user) {
+        saveChatMessage(user.id, newUserMsg).catch(console.error);
+    }
 
     if (checkForSafety(userText)) return;
 
@@ -221,8 +242,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
       textToSend = textToSend + contextStr;
 
       const responseText = await sendMessageToGemini(textToSend);
-      // We do NOT clean text here so we can preserve the [[ ]] for rendering
-      // const cleanedResponse = cleanText(responseText);
       
       if (checkForSafety(responseText)) return;
 
@@ -232,7 +251,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal 
         text: responseText, // Keep raw format with brackets
         timestamp: Date.now()
       };
+      
       setMessages(prev => [...prev, newAiMsg]);
+      
+      if (user) {
+          saveChatMessage(user.id, newAiMsg).catch(console.error);
+      }
+
     } catch (error) {
       console.error(error);
     } finally {

@@ -2,19 +2,17 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ViewProps } from '../types';
-import { Mail, Lock, User, ArrowRight, Loader2, Heart, KeyRound, CheckCircle2 } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Loader2, Heart, CheckCircle2 } from 'lucide-react';
 
-type AuthMode = 'login' | 'signup' | 'forgot' | 'reset';
+type AuthMode = 'login' | 'signup' | 'forgot';
 
 const AuthScreen: React.FC<ViewProps> = ({ setView, showLegal }) => {
-  const { login, signup, requestPasswordReset, confirmPasswordReset } = useAuth();
+  const { login, signup, requestPasswordReset } = useAuth();
   
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [code, setCode] = useState(''); // For reset
-  const [newPassword, setNewPassword] = useState('');
   
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -41,7 +39,6 @@ const AuthScreen: React.FC<ViewProps> = ({ setView, showLegal }) => {
     try {
         const result = await signup(email, password, name);
         if (result.success) {
-            // Auto-login handled in context, just switch view
             setView('home');
         } else {
             setError(result.message);
@@ -56,30 +53,12 @@ const AuthScreen: React.FC<ViewProps> = ({ setView, showLegal }) => {
       try {
           const result = await requestPasswordReset(email);
           if (result.success) {
-              setSuccessMsg(`Reset code sent to ${email}`);
-              setMode('reset');
+              setSuccessMsg(`Reset link sent to ${email}. Check your inbox (and spam).`);
+              setMode('login');
           } else {
               setError(result.message);
           }
       } catch (e) { setError("Request failed."); }
-      setLoading(false);
-  };
-
-  const handleReset = async (e: React.FormEvent) => {
-      e.preventDefault();
-      setLoading(true); setError('');
-      try {
-          const result = await confirmPasswordReset(email, code, newPassword);
-          if (result.success) {
-              setSuccessMsg("Password reset! Please login.");
-              setMode('login');
-              setPassword('');
-              setCode('');
-              setNewPassword('');
-          } else {
-              setError(result.message);
-          }
-      } catch (e) { setError("Reset failed."); }
       setLoading(false);
   };
 
@@ -127,32 +106,15 @@ const AuthScreen: React.FC<ViewProps> = ({ setView, showLegal }) => {
           case 'forgot':
               return (
                   <form onSubmit={handleForgot} className="space-y-4">
-                      <p className="text-center text-sm text-slate-600 dark:text-slate-300 mb-2">Enter your email to receive a password reset code.</p>
+                      <p className="text-center text-sm text-slate-600 dark:text-slate-300 mb-2">Enter your email to receive a password reset link.</p>
                       <div className="relative">
                           <Mail className="absolute left-4 top-4 text-slate-400" size={20} />
                           <input type="email" required placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
                       </div>
                       <button type="submit" disabled={loading} className="w-full bg-brand-600 text-white font-bold py-4 rounded-full shadow-md hover:bg-brand-700 transition-all mt-2 flex items-center justify-center gap-2">
-                          {loading ? <Loader2 className="animate-spin" size={20} /> : <>Send Reset Code <ArrowRight size={18} /></>}
+                          {loading ? <Loader2 className="animate-spin" size={20} /> : <>Send Reset Link <ArrowRight size={18} /></>}
                       </button>
                       <button type="button" onClick={() => { setMode('login'); setError(''); setSuccessMsg(''); }} className="w-full text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-sm font-medium py-2">Back to Login</button>
-                  </form>
-              );
-          case 'reset':
-              return (
-                  <form onSubmit={handleReset} className="space-y-4">
-                       <p className="text-center text-sm text-slate-600 dark:text-slate-300 mb-2">Enter the code sent to <strong>{email}</strong> and your new password.</p>
-                      <div className="relative">
-                          <KeyRound className="absolute left-4 top-4 text-slate-400" size={20} />
-                          <input type="text" required placeholder="Reset Code" value={code} onChange={(e) => setCode(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
-                      </div>
-                      <div className="relative">
-                          <Lock className="absolute left-4 top-4 text-slate-400" size={20} />
-                          <input type="password" required placeholder="New Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-3.5 pl-12 pr-4 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-colors" />
-                      </div>
-                      <button type="submit" disabled={loading} className="w-full bg-brand-600 text-white font-bold py-4 rounded-full shadow-md hover:bg-brand-700 transition-all mt-2 flex items-center justify-center gap-2">
-                          {loading ? <Loader2 className="animate-spin" size={20} /> : <>Reset Password <CheckCircle2 size={18} /></>}
-                      </button>
                   </form>
               );
       }
@@ -168,13 +130,12 @@ const AuthScreen: React.FC<ViewProps> = ({ setView, showLegal }) => {
             </div>
             
             <h2 className="text-3xl font-serif font-bold text-center text-slate-900 dark:text-slate-100 mb-2 capitalize">
-                {mode === 'login' ? 'Welcome Back' : mode.replace('-', ' ')}
+                {mode === 'login' ? 'Welcome Back' : mode}
             </h2>
             <p className="text-center text-slate-500 dark:text-slate-400 mb-6 text-sm">
                 {mode === 'login' && 'Sign in to access your personal journey.'}
                 {mode === 'signup' && 'Create an account for continuity and support.'}
                 {mode === 'forgot' && 'Recover access to your account.'}
-                {mode === 'reset' && 'Set a new secure password.'}
             </p>
 
             {error && (

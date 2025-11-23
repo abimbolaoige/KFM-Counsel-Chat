@@ -4,6 +4,7 @@ import { Book, Plus, Trash2, ArrowLeft, Calendar, PenTool, CheckCircle2, Lock } 
 import { ViewProps, JournalEntry } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import SecurityLock from './SecurityLock';
+import { subscribeToJournal, addJournalEntry, deleteJournalEntry } from '../services/dataService';
 
 const JournalView: React.FC<ViewProps> = ({ setView }) => {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -12,45 +13,42 @@ const JournalView: React.FC<ViewProps> = ({ setView }) => {
   const [isAdding, setIsAdding] = useState(false);
   const { user, isFeaturesUnlocked } = useAuth();
   
-  const journalStorageKey = user ? `kfm_journal_${user.id}` : 'kfm_journal_guest';
-
   useEffect(() => {
-    const saved = localStorage.getItem(journalStorageKey);
-    if (saved) {
-      try {
-        setEntries(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to load journal", e);
-      }
-    } else {
-        setEntries([]);
+    if (!user) return;
+    
+    // Subscribe to real-time updates
+    const unsubscribe = subscribeToJournal(user.id, (fetchedEntries) => {
+        setEntries(fetchedEntries);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const addEntry = async () => {
+    if (!newEntryText.trim() || !user) return;
+
+    try {
+        await addJournalEntry(user.id, {
+            date: Date.now(),
+            text: newEntryText.trim(),
+            category
+        });
+        setNewEntryText('');
+        setIsAdding(false);
+    } catch (e) {
+        console.error("Error adding entry", e);
+        alert("Failed to save entry. Check connection.");
     }
-  }, [journalStorageKey]);
-
-  useEffect(() => {
-    if (entries.length > 0 || localStorage.getItem(journalStorageKey)) {
-        localStorage.setItem(journalStorageKey, JSON.stringify(entries));
-    }
-  }, [entries, journalStorageKey]);
-
-  const addEntry = () => {
-    if (!newEntryText.trim()) return;
-
-    const entry: JournalEntry = {
-      id: Date.now().toString(),
-      date: Date.now(),
-      text: newEntryText.trim(),
-      category
-    };
-
-    setEntries(prev => [entry, ...prev]);
-    setNewEntryText('');
-    setIsAdding(false);
   };
 
-  const deleteEntry = (id: string) => {
+  const deleteEntry = async (id: string) => {
+    if (!user) return;
     if (window.confirm('Delete this entry?')) {
-      setEntries(prev => prev.filter(e => e.id !== id));
+        try {
+            await deleteJournalEntry(user.id, id);
+        } catch (e) {
+            console.error("Error deleting", e);
+        }
     }
   };
 
@@ -74,7 +72,6 @@ const JournalView: React.FC<ViewProps> = ({ setView }) => {
   };
 
   if (!user) {
-      // Strictly restrict journal for guests
       return (
         <div className="flex flex-col items-center justify-center h-full p-6 text-center">
              <div className="w-20 h-20 bg-brand-100 dark:bg-brand-900/30 rounded-full flex items-center justify-center mb-6 relative">

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Save, UserCircle, ArrowLeft, Heart, Activity, Lock, KeyRound } from 'lucide-react';
 import { ViewProps, UserProfile } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { getUserProfile, saveUserProfile } from '../services/dataService';
 
 const ProfileSettings: React.FC<ViewProps> = ({ setView }) => {
   const [profile, setProfile] = useState<UserProfile>({
@@ -14,35 +15,47 @@ const ProfileSettings: React.FC<ViewProps> = ({ setView }) => {
   });
   const [saved, setSaved] = useState(false);
   const [newPin, setNewPin] = useState('');
+  const [loading, setLoading] = useState(false);
   const { user } = useAuth();
   
-  const profileStorageKey = user ? `kfm_profile_${user.id}` : 'kfm_profile_guest';
-
   useEffect(() => {
-    const savedProfile = localStorage.getItem(profileStorageKey);
-    if (savedProfile) {
-      try {
-        setProfile(JSON.parse(savedProfile));
-      } catch (e) {
-        console.error("Error parsing profile", e);
-      }
-    }
-  }, [profileStorageKey]);
+    const loadData = async () => {
+        if (!user) return;
+        setLoading(true);
+        try {
+            const data = await getUserProfile(user.id);
+            if (data) {
+                setProfile(data);
+            }
+        } catch (e) {
+            console.error("Profile Load Error", e);
+        }
+        setLoading(false);
+    };
+    loadData();
+  }, [user]);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
+
+    setLoading(true);
     const updatedProfile = { ...profile };
     
-    // Only update PIN if newPin is entered (simple update for MVP)
     if (newPin.length === 4) {
         updatedProfile.accessPin = newPin;
     }
 
-    localStorage.setItem(profileStorageKey, JSON.stringify(updatedProfile));
-    setProfile(updatedProfile);
-    setNewPin('');
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    try {
+        await saveUserProfile(user.id, updatedProfile);
+        setProfile(updatedProfile);
+        setNewPin('');
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+        alert("Failed to save profile. Check connection.");
+    }
+    setLoading(false);
   };
 
   return (
@@ -149,16 +162,17 @@ const ProfileSettings: React.FC<ViewProps> = ({ setView }) => {
         <div className="bg-brand-50 dark:bg-brand-900/20 p-5 rounded-2xl border border-brand-100 dark:border-brand-900/30 flex items-start gap-4">
             <Heart size={24} className="text-brand-500 dark:text-brand-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-brand-900 dark:text-brand-200 leading-relaxed">
-                <strong>Note:</strong> This information is stored securely on this device to personalize your counseling experience.
+                <strong>Note:</strong> Your profile data is synced securely to the cloud.
             </p>
         </div>
 
         <button 
           type="submit"
+          disabled={loading}
           className={`w-full py-4 rounded-full shadow-md font-bold transition-all flex items-center justify-center gap-2 mt-4 active:scale-[0.98]
             ${saved ? 'bg-green-600 text-white' : 'bg-slate-900 dark:bg-slate-700 text-white hover:bg-slate-800 dark:hover:bg-slate-600'}`}
         >
-          {saved ? 'Saved Successfully!' : <><Save size={20} /> Save Profile</>}
+          {saved ? 'Saved Successfully!' : loading ? 'Saving...' : <><Save size={20} /> Save Profile</>}
         </button>
       </form>
     </div>

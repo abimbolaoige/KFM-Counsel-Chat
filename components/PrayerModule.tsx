@@ -6,6 +6,14 @@ import { PRAYER_TOPICS } from '../constants';
 import { generatePrayer } from '../services/geminiService';
 import { useAuth } from '../contexts/AuthContext';
 import SecurityLock from './SecurityLock';
+import { 
+    subscribeToPrayerRequests, 
+    subscribeToTestimonies, 
+    addPrayerRequest, 
+    addTestimony, 
+    incrementPrayerCount,
+    deletePrayerRequest
+} from '../services/dataService';
 
 interface PrayerResult {
   prayer: string;
@@ -14,10 +22,10 @@ interface PrayerResult {
 
 interface HubRequest {
   id: string;
-  userId?: string; // Added to track ownership
+  userId?: string;
   text: string;
   prayedCount: number;
-  timestamp: number;
+  timestamp: any;
   isAnonymous: boolean;
   authorName?: string;
 }
@@ -26,7 +34,7 @@ interface Testimony {
   id: string;
   userId?: string;
   text: string;
-  timestamp: number;
+  timestamp: any;
   authorName: string;
 }
 
@@ -43,39 +51,26 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
   const [testimonies, setTestimonies] = useState<Testimony[]>([]);
   const [newHubText, setNewHubText] = useState('');
   const [isSubmittingHub, setIsSubmittingHub] = useState(false);
-  const [prayedIds, setPrayedIds] = useState<string[]>([]); // Track session prays
+  const [prayedIds, setPrayedIds] = useState<string[]>([]);
 
-  // Editing State
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editText, setEditText] = useState('');
-
-  // Load Hub Data
+  // Load Hub Data Real-time
   useEffect(() => {
-    if (!user) return; // Don't load if not logged in
+    if (!user) return;
+    
+    // Subscribe to requests
+    const unsubReq = subscribeToPrayerRequests((data) => {
+        setRequests(data as HubRequest[]);
+    });
 
-    const savedRequests = localStorage.getItem('kfm_hub_requests');
-    if (savedRequests) {
-        setRequests(JSON.parse(savedRequests));
-    } else {
-        // Seed data
-        const seeds: HubRequest[] = [
-            { id: '1', text: "Please pray for restoration of trust in my marriage.", prayedCount: 12, timestamp: Date.now() - 86400000, isAnonymous: true },
-            { id: '2', text: "My husband and I are struggling to communicate without fighting.", prayedCount: 5, timestamp: Date.now() - 172800000, isAnonymous: true }
-        ];
-        setRequests(seeds);
-        localStorage.setItem('kfm_hub_requests', JSON.stringify(seeds));
-    }
+    // Subscribe to testimonies
+    const unsubTest = subscribeToTestimonies((data) => {
+        setTestimonies(data as Testimony[]);
+    });
 
-    const savedTestimonies = localStorage.getItem('kfm_hub_testimonies');
-    if (savedTestimonies) {
-        setTestimonies(JSON.parse(savedTestimonies));
-    } else {
-        const seeds: Testimony[] = [
-            { id: '1', text: "After months of counseling and prayer, we finally had a peaceful date night!", timestamp: Date.now() - 400000000, authorName: "Sarah" }
-        ];
-        setTestimonies(seeds);
-        localStorage.setItem('kfm_hub_testimonies', JSON.stringify(seeds));
-    }
+    return () => {
+        unsubReq();
+        unsubTest();
+    };
   }, [user]);
 
   const handleGenerate = async (topic: string) => {
@@ -90,101 +85,65 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
     setLoading(false);
   };
 
-  const submitHubItem = () => {
-      if (!newHubText.trim()) return;
+  const submitHubItem = async () => {
+      if (!newHubText.trim() || !user) return;
 
-      if (hubSection === 'requests') {
-          const newItem: HubRequest = {
-              id: Date.now().toString(),
-              userId: user?.id,
-              text: newHubText.trim(),
-              prayedCount: 0,
-              timestamp: Date.now(),
-              isAnonymous: true, // Default to anonymous for requests
-              authorName: user ? user.name.split(' ')[0] : 'Anonymous'
-          };
-          const updated = [newItem, ...requests];
-          setRequests(updated);
-          localStorage.setItem('kfm_hub_requests', JSON.stringify(updated));
-      } else {
-          const newItem: Testimony = {
-              id: Date.now().toString(),
-              userId: user?.id,
-              text: newHubText.trim(),
-              timestamp: Date.now(),
-              authorName: user ? user.name.split(' ')[0] : 'Anonymous'
-          };
-          const updated = [newItem, ...testimonies];
-          setTestimonies(updated);
-          localStorage.setItem('kfm_hub_testimonies', JSON.stringify(updated));
+      try {
+        if (hubSection === 'requests') {
+            await addPrayerRequest({
+                userId: user.id,
+                text: newHubText.trim(),
+                prayedCount: 0,
+                timestamp: new Date(),
+                isAnonymous: true,
+                authorName: user.name ? user.name.split(' ')[0] : 'Anonymous'
+            });
+        } else {
+            await addTestimony({
+                userId: user.id,
+                text: newHubText.trim(),
+                timestamp: new Date(),
+                authorName: user.name ? user.name.split(' ')[0] : 'Anonymous'
+            });
+        }
+        setNewHubText('');
+        setIsSubmittingHub(false);
+      } catch (e) {
+          console.error(e);
+          alert("Failed to post. Please try again.");
       }
-      setNewHubText('');
-      setIsSubmittingHub(false);
   };
 
-  const handlePrayClick = (id: string) => {
-      if (prayedIds.includes(id)) return;
-
-      const updated = requests.map(req => {
-          if (req.id === id) {
-              return { ...req, prayedCount: req.prayedCount + 1 };
-          }
-          return req;
-      });
-      setRequests(updated);
-      localStorage.setItem('kfm_hub_requests', JSON.stringify(updated));
-      setPrayedIds([...prayedIds, id]);
-  };
-
-  // --- Edit Functionality ---
-  const startEditing = (req: HubRequest) => {
-    setEditingId(req.id);
-    setEditText(req.text);
-  };
-
-  const cancelEditing = () => {
-    setEditingId(null);
-    setEditText('');
-  };
-
-  const saveEdit = () => {
-    if (!editingId || !editText.trim()) return;
-
-    const updated = requests.map(req => {
-      if (req.id === editingId) {
-        return { ...req, text: editText.trim() };
+  const handlePrayClick = async (req: HubRequest) => {
+      if (prayedIds.includes(req.id)) return;
+      
+      setPrayedIds([...prayedIds, req.id]);
+      try {
+          await incrementPrayerCount(req.id, req.prayedCount);
+      } catch (e) {
+          console.error(e);
       }
-      return req;
-    });
-    setRequests(updated);
-    localStorage.setItem('kfm_hub_requests', JSON.stringify(updated));
-    setEditingId(null);
-    setEditText('');
   };
 
   // --- Answered Functionality ---
-  const markAsAnswered = (req: HubRequest) => {
+  const markAsAnswered = async (req: HubRequest) => {
     if (window.confirm("Mark this prayer as answered? It will be moved to the Testimonies section.")) {
-      // 1. Remove from requests
-      const updatedRequests = requests.filter(r => r.id !== req.id);
-      setRequests(updatedRequests);
-      localStorage.setItem('kfm_hub_requests', JSON.stringify(updatedRequests));
-
-      // 2. Add to testimonies
-      const newTestimony: Testimony = {
-        id: req.id, // Keep same ID or new one, keeping same is fine for tracking
-        userId: req.userId,
-        text: `Answered Prayer: ${req.text}`,
-        timestamp: Date.now(),
-        authorName: req.authorName || (user ? user.name.split(' ')[0] : 'Anonymous')
-      };
-      
-      const updatedTestimonies = [newTestimony, ...testimonies];
-      setTestimonies(updatedTestimonies);
-      localStorage.setItem('kfm_hub_testimonies', JSON.stringify(updatedTestimonies));
-
-      // Optional: Switch view
-      setHubSection('testimonies');
+      try {
+          // Delete request
+          await deletePrayerRequest(req.id);
+          
+          // Add testimony
+          await addTestimony({
+            userId: req.userId,
+            text: `Answered Prayer: ${req.text}`,
+            timestamp: new Date(),
+            authorName: req.authorName || 'Anonymous'
+          });
+          
+          setHubSection('testimonies');
+      } catch (e) {
+          console.error(e);
+      }
     }
   };
 
@@ -193,8 +152,11 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
     setCustomTopic('');
   };
 
-  const formatDate = (ts: number) => {
-      return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const formatDate = (ts: any) => {
+      if (!ts) return '';
+      // Firestore timestamp handling
+      const date = ts.toDate ? ts.toDate() : new Date(ts);
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
   // --- AUTH RESTRICTION ---
@@ -372,22 +334,7 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
                   {hubSection === 'requests' && requests.map((req) => (
                       <div key={req.id} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
                           
-                          {/* Edit Mode */}
-                          {editingId === req.id ? (
-                            <div className="animate-in fade-in">
-                                <textarea 
-                                    value={editText}
-                                    onChange={e => setEditText(e.target.value)}
-                                    className="w-full h-24 bg-slate-50 dark:bg-slate-900 rounded-lg p-2 text-sm text-slate-800 dark:text-slate-200 border focus:ring-1 focus:ring-amber-500 mb-2"
-                                />
-                                <div className="flex justify-end gap-2">
-                                    <button onClick={cancelEditing} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-full"><X size={16} /></button>
-                                    <button onClick={saveEdit} className="p-1.5 text-green-600 bg-green-50 hover:bg-green-100 rounded-full"><Save size={16} /></button>
-                                </div>
-                            </div>
-                          ) : (
-                              <p className="text-slate-700 dark:text-slate-300 font-serif mb-3 leading-relaxed">{req.text}</p>
-                          )}
+                          <p className="text-slate-700 dark:text-slate-300 font-serif mb-3 leading-relaxed">{req.text}</p>
 
                           <div className="flex items-center justify-between mt-3">
                               <div className="flex items-center gap-2 text-xs text-slate-400">
@@ -397,15 +344,8 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
                               
                               <div className="flex items-center gap-2">
                                   {/* Owner Actions */}
-                                  {user && req.userId === user.id && editingId !== req.id && (
+                                  {user && req.userId === user.id && (
                                       <>
-                                        <button 
-                                            onClick={() => startEditing(req)}
-                                            className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-slate-700 rounded-full transition-colors"
-                                            title="Edit"
-                                        >
-                                            <PenTool size={14} />
-                                        </button>
                                         <button 
                                             onClick={() => markAsAnswered(req)}
                                             className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-slate-700 rounded-full transition-colors"
@@ -418,7 +358,7 @@ const PrayerModule: React.FC<ViewProps> = ({ setView }) => {
                                   )}
 
                                   <button 
-                                    onClick={() => handlePrayClick(req.id)}
+                                    onClick={() => handlePrayClick(req)}
                                     disabled={prayedIds.includes(req.id)}
                                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all active:scale-95
                                     ${prayedIds.includes(req.id) 
