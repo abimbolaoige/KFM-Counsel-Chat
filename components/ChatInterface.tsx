@@ -34,8 +34,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal,
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(activeSessionId);
 
-  // Terms Acceptance State
-  const [termsAccepted, setTermsAccepted] = useState(false);
+  // Terms Acceptance State - Check localStorage on mount
+  const [termsAccepted, setTermsAccepted] = useState(() => {
+    try {
+      const termsKey = user ? `kfm_terms_${user.id}` : 'kfm_terms_guest';
+      return localStorage.getItem(termsKey) === 'true';
+    } catch (e) {
+      console.error("Failed to access localStorage for terms", e);
+      return false;
+    }
+  });
   const [termsChecked, setTermsChecked] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -47,6 +55,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal,
   // Dynamic keys based on logged-in user
   const sessionsStorageKey = user ? `kfm_sessions_${user.id}` : 'kfm_sessions_guest';
   const profileStorageKey = user ? `kfm_profile_${user.id}` : 'kfm_profile_guest';
+  const termsStorageKey = user ? `kfm_terms_${user.id}` : 'kfm_terms_guest';
 
   // Update current session when activeSessionId changes
   useEffect(() => {
@@ -132,36 +141,65 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal,
   // Load session messages (Cloud vs Local)
   useEffect(() => {
     if (!currentSessionId) {
-      setMessages([]);
+      // Show a loading/waiting message instead of blank screen
+      setMessages([{
+        id: 'waiting',
+        role: 'model',
+        text: "Initializing your conversation...",
+        timestamp: Date.now(),
+      }]);
       return;
     }
 
-    if (user) {
-      // CLOUD MODE: Subscribe to session messages
-      const unsubscribe = subscribeToSessionMessages(user.id, currentSessionId, (fetchedMessages) => {
-        if (fetchedMessages && fetchedMessages.length > 0) {
-          setMessages(fetchedMessages);
-          setTermsAccepted(true);
-        } else {
-          setMessages([{
-            id: 'welcome',
-            role: 'model',
-            text: `Hello ${user.name}. I am KFM Counsel. How can I be a support to you today?`,
-            timestamp: Date.now(),
-          }]);
-        }
-      });
-      return () => unsubscribe();
-    } else {
-      // GUEST MODE: Local Storage with sessions
-      const saved = localStorage.getItem(sessionsStorageKey);
-      if (saved) {
+    try {
+      if (user) {
+        // CLOUD MODE: Subscribe to session messages
+        const unsubscribe = subscribeToSessionMessages(user.id, currentSessionId, (fetchedMessages) => {
+          if (fetchedMessages && fetchedMessages.length > 0) {
+            setMessages(fetchedMessages);
+            // If user has messages, they've already accepted terms
+            try {
+              const hasAccepted = localStorage.getItem(termsStorageKey) === 'true';
+              if (!hasAccepted) {
+                localStorage.setItem(termsStorageKey, 'true');
+                setTermsAccepted(true);
+              }
+            } catch (e) {
+              console.error("Failed to access localStorage", e);
+            }
+          } else {
+            setMessages([{
+              id: 'welcome',
+              role: 'model',
+              text: `Hello ${user.name}. I am KFM Counsel. How can I be a support to you today?`,
+              timestamp: Date.now(),
+            }]);
+          }
+        });
+        return () => unsubscribe();
+      } else {
+        // GUEST MODE: Local Storage with sessions
         try {
-          const sessions = JSON.parse(saved);
-          const session = sessions.find((s: any) => s.id === currentSessionId);
-          if (session && session.messages) {
-            setMessages(session.messages);
-            setTermsAccepted(true);
+          const saved = localStorage.getItem(sessionsStorageKey);
+          if (saved) {
+            const sessions = JSON.parse(saved);
+            const session = sessions.find((s: any) => s.id === currentSessionId);
+            if (session && session.messages) {
+              setMessages(session.messages);
+              // If guest has messages, they've already accepted terms
+              const hasAccepted = localStorage.getItem(termsStorageKey) === 'true';
+              if (!hasAccepted) {
+                localStorage.setItem(termsStorageKey, 'true');
+                setTermsAccepted(true);
+              }
+            } else {
+              setMessages([{
+                id: 'welcome',
+                role: 'model',
+                text: "Hello. I am KFM Counsel, your Christian marriage relationship companion. How can I be a support to you today?",
+                timestamp: Date.now(),
+              }]);
+            }
           } else {
             setMessages([{
               id: 'welcome',
@@ -171,16 +209,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal,
             }]);
           }
         } catch (e) {
-          console.error("Failed to load session", e);
+          console.error("Failed to load session from localStorage", e);
+          // Fallback to welcome message on error
+          setMessages([{
+            id: 'welcome',
+            role: 'model',
+            text: "Hello. I am KFM Counsel. How can I be a support to you today?",
+            timestamp: Date.now(),
+          }]);
         }
-      } else {
-        setMessages([{
-          id: 'welcome',
-          role: 'model',
-          text: "Hello. I am KFM Counsel, your Christian marriage relationship companion. How can I be a support to you today?",
-          timestamp: Date.now(),
-        }]);
       }
+    } catch (err) {
+      console.error("Error in message loading effect", err);
     }
   }, [user, currentSessionId, sessionsStorageKey]);
 
@@ -215,6 +255,39 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal,
       }
 
       localStorage.setItem(sessionsStorageKey, JSON.stringify(sessions));
+    }
+  }, [messages, sessionsStorageKey, user, currentSessionId]);
+
+  // Update session metadata (message count, title, preview) for guest mode
+  useEffect(() => {
+    if (!user && currentSessionId && messages.length > 0) {
+      const saved = localStorage.getItem(sessionsStorageKey);
+      let sessions = [];
+      try {
+        sessions = saved ? JSON.parse(saved) : [];
+      } catch (e) {
+        sessions = [];
+      }
+
+      const sessionIndex = sessions.findIndex((s: any) => s.id === currentSessionId);
+      if (sessionIndex >= 0) {
+        const session = sessions[sessionIndex];
+        const userMessages = messages.filter(m => m.role === 'user');
+
+        // Update session metadata
+        sessions[sessionIndex] = {
+          ...session,
+          messages,
+          updatedAt: Date.now(),
+          messageCount: messages.length,
+          preview: userMessages.length > 0 ? userMessages[0].text.substring(0, 50) + (userMessages[0].text.length > 50 ? '...' : '') : session.preview,
+          title: session.title === 'New Conversation' && userMessages.length > 0
+            ? userMessages[0].text.substring(0, 40) + (userMessages[0].text.length > 40 ? '...' : '')
+            : session.title
+        };
+
+        localStorage.setItem(sessionsStorageKey, JSON.stringify(sessions));
+      }
     }
   }, [messages, sessionsStorageKey, user, currentSessionId]);
 
@@ -299,6 +372,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal,
           const lastTriage = profile.triageHistory[profile.triageHistory.length - 1];
           contextStr += `\n[Case History: Latest Assessment Score: ${lastTriage.score}%, Summary: ${lastTriage.summary}]`;
         }
+      } else if (user) {
+        // If logged in but no profile, at least pass the user's name
+        contextStr += `\n[Context: User Name: ${user.name}]`;
       }
 
       textToSend = textToSend + contextStr;
@@ -372,7 +448,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal,
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-32 scrollbar-hide w-full pt-12">
         <div className="max-w-3xl mx-auto space-y-6">
-          {messages.map((msg) => (
+          {Array.isArray(messages) && messages.map((msg) => (
             <div
               key={msg.id}
               className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -471,7 +547,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ triggerSafety, showLegal,
               </label>
             </div>
             <button
-              onClick={() => setTermsAccepted(true)}
+              onClick={() => {
+                setTermsAccepted(true);
+                localStorage.setItem(termsStorageKey, 'true');
+              }}
               disabled={!termsChecked}
               className="w-full md:w-auto px-8 py-3 bg-brand-600 text-white font-bold rounded-full shadow-md hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
             >

@@ -179,7 +179,8 @@ function AppContent() {
       case 'chat':
         return (
           <div className="flex h-full">
-            <div className="w-64 flex-shrink-0">
+            {/* Hide sidebar on mobile (< md), show on tablet and up */}
+            <div className="hidden md:block md:w-64 flex-shrink-0">
               <ChatSessionList
                 sessions={sessions}
                 activeSessionId={activeSessionId}
